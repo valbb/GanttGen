@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gantt 圖生成器</title>
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        transition: background-color 0.3s, color 0.3s;
+    }
+    .container {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+    label {
+        display: block;
+        margin-bottom: 10px;
+    }
+    input[type="text"], input[type="date"] {
+        width: 100%;
+        padding: 8px;
+        margin-bottom: 10px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        box-sizing: border-box;
+        font-size: 20px;
+    }
+    button {
+        background-color: #111;
+        color: white;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 20px;
+        margin-bottom: 10px;
+    }
+    button:hover {
+        background-color: #222;
+    }
+    #ganttChart {
+        margin-top: 20px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        padding: 20px;
+    }
+    canvas {
+        width: 800px;
+        margin-top: 20px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        padding: 20px;
+        box-sizing: border-box;
+        background-color: #FFF;
+    }
+
+    /* Dark 模式樣式 */
+    .dark-theme {
+        background-color: #222;
+        color: #fff;
+    }
+
+    /* 移動修改區塊到上方 */
+    .modal {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background-color: #fff;
+        padding: 20px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        z-index: 999;
+        display: none;
+    }
+
+    .modal-content {
+        text-align: center;
+        color: #000; /* 修改視窗中的文字顏色 */
+    }
+
+    /* 移動按鈕到右上角 */
+    .toggle-button {
+        position: absolute;
+        top: 20px;
+        right: 20px;
+    }
+</style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Gantt 圖生成器</h2>
+    <div id="taskModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>修改任務日期</h2>
+            <label for="editStartDate">新的開始日期:</label>
+            <input type="date" id="editStartDate">
+            <label for="editEndDate">新的結束日期:</label>
+            <input type="date" id="editEndDate">
+            <button onclick="saveEditedTask()">保存</button>
+        </div>
+    </div>
+    <label for="taskName">任務名稱:</label>
+    <input type="text" id="taskName" placeholder="輸入任務名稱...">
+    <label for="startDate">開始日期:</label>
+    <input type="date" id="startDate">
+    <label for="endDate">結束日期:</label>
+    <input type="date" id="endDate">
+    <button onclick="addTaskAndGenerateGantt()">生成 Gantt 圖</button> <!-- 修改按鈕的文字 -->
+    <button onclick="toggleTheme()" class="toggle-button">切換主題</button>
+
+    <div id="ganttChart">
+        <!-- 生成的 Gantt 圖將顯示在這裡 -->
+    </div>
+
+    <canvas id="ganttCanvas" width="800" height="400"></canvas>
+
+</div>
+
+<script>
+    var tasks = [];
+    var editedTaskIndex = -1;
+
+    function addTaskAndGenerateGantt() {
+        var taskName = document.getElementById('taskName').value;
+        var startDate = document.getElementById('startDate').value;
+        var endDate = document.getElementById('endDate').value;
+
+        if (taskName && startDate && endDate) {
+            tasks.push({ name: taskName, start: startDate, end: endDate });
+            clearFields();
+            generateGantt();
+        } else {
+            alert("請填寫所有字段。");
+        }
+    }
+
+    function clearFields() {
+        document.getElementById('taskName').value = '';
+        document.getElementById('startDate').value = '';
+        document.getElementById('endDate').value = '';
+    }
+
+    function generateGantt() {
+        if (tasks.length === 0) {
+            alert("未添加任務。");
+            return;
+        }
+
+        var earliestStartDate = tasks.reduce((min, task) => task.start < min ? task.start : min, tasks[0].start);
+        var latestEndDate = tasks.reduce((max, task) => task.end > max ? task.end : max, tasks[0].end);
+
+        var ganttChart = document.getElementById('ganttChart');
+        ganttChart.innerHTML = `
+            <h3>Gantt 圖</h3>
+            <p>最早開始日期: ${earliestStartDate}</p>
+            <p>最晚結束日期: ${latestEndDate}</p>
+            <ul>
+                ${tasks.map((task, index) => `<li>${task.name} - ${task.start} 到 ${task.end} <button onclick="editTask(${index})">修改</button></li>`).join('')}
+            </ul>
+            <!-- 您可以添加更多樣式或使用像 Chart.js 這樣的庫來獲得更交互式的 Gantt 圖。 -->
+        `;
+
+        drawGantt(tasks, earliestStartDate, latestEndDate);
+    }
+
+    function drawGantt(tasks, startDate, endDate) {
+        var canvas = document.getElementById('ganttCanvas');
+        var ctx = canvas.getContext('2d');
+
+        var totalDays = (new Date(endDate) - new Date(startDate)) / (1000 * 60 * 60 * 24);
+        var taskHeight = 40;
+        var dayWidth = canvas.width / totalDays;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        var lastDisplayedStartDate = null;
+        var lastDisplayedEndDate = null;
+
+        tasks.forEach((task, index) => {
+            var taskStart = (new Date(task.start) - new Date(startDate)) / (1000 * 60 * 60 * 24);
+            var taskEnd = (new Date(task.end) - new Date(startDate)) / (1000 * 60 * 60 * 24);
+            var taskWidth = (taskEnd - taskStart) * dayWidth;
+
+            ctx.fillStyle = getLowSaturationColor(index, tasks.length);
+            ctx.fillRect(taskStart * dayWidth, index * taskHeight, taskWidth, taskHeight);
+            ctx.fillStyle = '#000';
+            ctx.font = '20px Arial';
+            ctx.fillText(task.name, taskStart * dayWidth + 5, (index + 0.5) * taskHeight + 5);
+
+            // 顯示開始日期
+            if (task.start !== lastDisplayedStartDate) {
+                ctx.fillText(formatDate(new Date(task.start)), taskStart * dayWidth, canvas.height - 5);
+                lastDisplayedStartDate = task.start;
+            }
+
+            // 顯示結束日期
+            if (index === tasks.length - 1 || task.end !== tasks[index + 1].start) {
+                ctx.fillText(formatDate(new Date(task.end)), (taskStart + (taskEnd - taskStart)) * dayWidth - 55, canvas.height - 5);
+                lastDisplayedEndDate = task.end;
+            }
+        });
+
+        ctx.strokeStyle = '#000';
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(canvas.width, 0);
+        ctx.stroke();
+    }
+
+    function getLowSaturationColor(index, total) {
+        var hue = (360 / total) * index;
+        return 'hsl(' + hue + ', 30%, 70%)';
+    }
+
+    function formatDate(date) {
+        var day = date.getDate();
+        var month = date.getMonth() + 1;
+        return month + '/' + day;
+    }
+
+    function editTask(index) {
+        var task = tasks[index];
+        document.getElementById('editStartDate').value = task.start;
+        document.getElementById('editEndDate').value = task.end;
+        editedTaskIndex = index;
+        document.getElementById('taskModal').style.display = 'block';
+    }
+
+    function saveEditedTask() {
+        var newStartDate = document.getElementById('editStartDate').value;
+        var newEndDate = document.getElementById('editEndDate').value;
+
+        if (newStartDate && newEndDate) {
+            tasks[editedTaskIndex].start = newStartDate;
+            tasks[editedTaskIndex].end = newEndDate;
+            document.getElementById('taskModal').style.display = 'none';
+            generateGantt();
+        } else {
+            alert("請填寫所有字段。");
+        }
+    }
+
+    function toggleTheme() {
+        var body = document.body;
+        body.classList.toggle('dark-theme');
+    }
+</script>
+
+</body>
+</html>
